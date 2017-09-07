@@ -1,4 +1,5 @@
-from peewee import SqliteDatabase, Model, OperationalError, CharField
+import datetime
+from peewee import SqliteDatabase, Model, OperationalError, CharField, DateTimeField, IntegerField
 
 db = SqliteDatabase('c2.db')
 
@@ -21,4 +22,18 @@ class BaseModel(Model):
 class Zombie(BaseModel):
     uuid = CharField(unique=True)
     ip_addr = CharField()
-    sysinfo = CharField()
+    os = CharField()
+    ifconfig = CharField()
+    uname = CharField()
+    uid = IntegerField()
+    last_checkin = DateTimeField(default=datetime.datetime.now)
+
+    def get_dict(self):
+        return dict(id=self.id,
+                    uuid=self.uuid,
+                    ip_addr=self.ip_addr,
+                    uname=self.uname,
+                    uid=self.uid,
+                    os=self.os,
+                    updated=self.last_checkin)
+
