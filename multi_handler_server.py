@@ -44,12 +44,13 @@ class Connection(Process):
             self.conn.send(session_list)
 
 
-class StoppableServer:
+class StoppableServer(Process):
     def __init__(self, host: str, port: int):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.bind((host, port))
         self.sock.listen(10)
         self._stop = False
+        super().__init__()
 
     def stop(self) -> None:
         self._stop = True
@@ -58,7 +59,7 @@ class StoppableServer:
         return self._stop
 
 
-class ShellServer(StoppableServer, Process):
+class ShellServer(StoppableServer):
     def __init__(self, host: str="0.0.0.0", port: int=4444):
         super().__init__(host, port)
 
